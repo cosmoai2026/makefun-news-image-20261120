@@ -11,26 +11,26 @@ import os
 import shutil
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-SOURCE = HERE / "entry.png"
+ROOT = Path(__file__).resolve().parent
+ENTRY_SOURCE = ROOT / "entry.png"
 
 
-def output_dir():
+def resolve_output_dir():
     override = os.environ.get("MAKEFUN_OUTPUT_DIR")
     return Path(override) if override else Path("/output")
 
 
-def copy_entry():
-    target_dir = output_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / "entry.png"
-    shutil.copyfile(SOURCE, target)
-    return target
+def emit_entry():
+    destination_dir = resolve_output_dir()
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / "entry.png"
+    shutil.copyfile(ENTRY_SOURCE, destination)
+    return destination
 
 
 def main():
-    target = copy_entry()
-    print(f"entry written to {target} ({target.stat().st_size} bytes)")
+    written = emit_entry()
+    print(f"entry written to {written} ({written.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

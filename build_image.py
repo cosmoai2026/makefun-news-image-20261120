@@ -1,94 +1,104 @@
 #!/usr/bin/env python3
-"""Build the 20 November 2026 world-news front page (1024x1024 PNG).
+"""Compose the 20 November 2026 world-news front page as a 1024x1024 PNG.
 
-The page is a broadsheet-style collage: masthead, a hero illustration,
-a caption, and six short stories in a two-column grid. Everything is
-drawn with PIL from files that ship in this repository, so the output
-is deterministic and needs no network access.
+The page is laid out like a broadsheet: a masthead block, a wide hero
+illustration, a one-line caption, then six short stories arranged in a
+two-column grid above a source footer. Everything is drawn with PIL
+from assets that ship in this repository (the hero illustration and the
+system DejaVu fonts), so the result is fully deterministic and needs
+no network access.
 """
 
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = Path(__file__).resolve().parent
-HERO_PATH = HERE / "hero.png"
-OUTPUT_PATH = HERE / "entry.png"
+ROOT = Path(__file__).resolve().parent
+HERO_FILE = ROOT / "hero.png"
+ENTRY_FILE = ROOT / "entry.png"
 
-PAGE = 1024
-MARGIN = 32
-CONTENT_W = PAGE - 2 * MARGIN
+CANVAS = 1024
+EDGE = 32
+INNER_W = CANVAS - 2 * EDGE
+GUTTER = 28
+HERO_BAND = 250
 
-PAPER = (247, 243, 234)
-INK = (24, 28, 38)
-FAINT = (96, 100, 110)
-ACCENT = (176, 116, 28)
-RULE = (24, 28, 38)
+COLOURS = {
+    "paper": (247, 243, 234),
+    "ink": (24, 28, 38),
+    "faint": (96, 100, 110),
+    "accent": (176, 116, 28),
+}
 
-FONT_DIR = Path("/usr/share/fonts/truetype/dejavu")
-SERIF_BOLD = FONT_DIR / "DejaVuSerif-Bold.ttf"
-SERIF = FONT_DIR / "DejaVuSerif.ttf"
-SANS = FONT_DIR / "DejaVuSans.ttf"
-SANS_BOLD = FONT_DIR / "DejaVuSans-Bold.ttf"
+FONT_HOME = Path("/usr/share/fonts/truetype/dejavu")
+FONT_FILES = {
+    "serif_bold": FONT_HOME / "DejaVuSerif-Bold.ttf",
+    "serif": FONT_HOME / "DejaVuSerif.ttf",
+    "sans": FONT_HOME / "DejaVuSans.ttf",
+    "sans_bold": FONT_HOME / "DejaVuSans-Bold.ttf",
+}
 
-MASTHEAD = "20 NOVEMBER 2026"
-SUBLINE = "Friday  ·  Shenzhen peace declaration  ·  Genocide ruling  ·  Anthropic debut"
-CAPTION = ("A peace declaration in Shenzhen, a genocide ruling in The Hague "
-           "and a blockbuster AI debut — the world on 20 November 2026.")
-FOOTER = "Sources: Reuters · AP · AFP · BBC — 20 Nov 2026"
+TITLE_LINE = "20 NOVEMBER 2026"
+STRAP_LINE = "Friday  ·  Shenzhen peace declaration  ·  Genocide ruling  ·  Anthropic debut"
+CAPTION_TEXT = (
+    "A peace declaration in Shenzhen, a genocide ruling in The Hague "
+    "and a blockbuster AI debut — the world on 20 November 2026."
+)
+FOOTER_TEXT = "Sources: Reuters · AP · AFP · BBC — 20 Nov 2026"
 
+# (kicker, headline, summary) for the six stories on the page.
 STORIES = [
-    {
-        "kicker": "PEACE DEAL",
-        "headline": "Trump, Xi and Putin sign peace declaration",
-        "summary": ("The three leaders issued a four-point joint declaration "
-                    "after their first three-way summit in Shenzhen."),
-    },
-    {
-        "kicker": "COURT",
-        "headline": "World Court: Myanmar committed genocide",
-        "summary": ("The ICJ ruled 9–6 that Myanmar committed genocide against "
-                    "the Rohingya, a first against a state."),
-    },
-    {
-        "kicker": "MARKETS",
-        "headline": "Anthropic pops 17% in Nasdaq debut",
-        "summary": ("Shares closed near $97, above the $83 offer, while the "
-                    "Nikkei slid 4.8% and Asian markets fell."),
-    },
-    {
-        "kicker": "RIYADH",
-        "headline": "Houthi missiles hit Riyadh finance tower",
-        "summary": ("Missiles damaged the Saudi sovereign wealth fund's PIF "
-                    "tower in the capital's financial district."),
-    },
-    {
-        "kicker": "HORMUZ",
-        "headline": "Tanker ablaze after mine strike near Hormuz",
-        "summary": ("A tanker caught fire east of the strait as the US war "
-                    "with Iran entered its ninth month."),
-    },
-    {
-        "kicker": "UKRAINE",
-        "headline": "UK sends 1,000 drones to Ukraine",
-        "summary": ("London pledged a £260 million package as Kyiv came "
-                    "under ballistic missile fire."),
-    },
+    (
+        "PEACE DEAL",
+        "Trump, Xi and Putin sign peace declaration",
+        "The three leaders issued a four-point joint declaration "
+        "after their first three-way summit in Shenzhen.",
+    ),
+    (
+        "COURT",
+        "World Court: Myanmar committed genocide",
+        "The ICJ ruled 9–6 that Myanmar committed genocide against "
+        "the Rohingya, a first against a state.",
+    ),
+    (
+        "MARKETS",
+        "Anthropic pops 17% in Nasdaq debut",
+        "Shares closed near $97, above the $83 offer, while the "
+        "Nikkei slid 4.8% and Asian markets fell.",
+    ),
+    (
+        "RIYADH",
+        "Houthi missiles hit Riyadh finance tower",
+        "Missiles damaged the Saudi sovereign wealth fund's PIF "
+        "tower in the capital's financial district.",
+    ),
+    (
+        "HORMUZ",
+        "Tanker ablaze after mine strike near Hormuz",
+        "A tanker caught fire east of the strait as the US war "
+        "with Iran entered its ninth month.",
+    ),
+    (
+        "UKRAINE",
+        "UK sends 1,000 drones to Ukraine",
+        "London pledged a £260 million package as Kyiv came "
+        "under ballistic missile fire.",
+    ),
 ]
 
 
-def font(path, size):
-    return ImageFont.truetype(str(path), size)
+def load_font(face, size):
+    return ImageFont.truetype(str(FONT_FILES[face]), size)
 
 
-def wrap(draw, text, fnt, max_width):
-    """Greedy word wrap against a pixel width."""
-    words = text.split()
-    lines, current = [], ""
-    for word in words:
-        trial = word if not current else current + " " + word
-        if draw.textlength(trial, font=fnt) <= max_width:
-            current = trial
+def wrap_text(draw, text, face, limit):
+    """Split text into lines that each fit within `limit` pixels."""
+    lines = []
+    current = ""
+    for word in text.split():
+        candidate = word if not current else f"{current} {word}"
+        if draw.textlength(candidate, font=face) <= limit:
+            current = candidate
         else:
             lines.append(current)
             current = word
@@ -97,91 +107,94 @@ def wrap(draw, text, fnt, max_width):
     return lines
 
 
-def draw_centered(draw, text, fnt, y, fill):
-    width = draw.textlength(text, font=fnt)
-    draw.text(((PAGE - width) / 2, y), text, font=fnt, fill=fill)
-    return y + fnt.size
+def centred(draw, text, face, y, colour):
+    """Draw one horizontally centred line; return the y below it."""
+    x = (CANVAS - draw.textlength(text, font=face)) / 2
+    draw.text((x, y), text, font=face, fill=colour)
+    return y + face.size
 
 
-def render_masthead(draw):
-    draw.rectangle([MARGIN, 30, PAGE - MARGIN, 34], fill=RULE)
-    y = draw_centered(draw, MASTHEAD, font(SERIF_BOLD, 58), 46, INK)
-    y = draw_centered(draw, SUBLINE, font(SANS, 19), y + 8, FAINT)
-    draw.rectangle([MARGIN, y + 14, PAGE - MARGIN, y + 16], fill=RULE)
+def rule(draw, y, thickness=2):
+    draw.rectangle([EDGE, y, CANVAS - EDGE, y + thickness], fill=COLOURS["ink"])
+
+
+def draw_masthead(draw):
+    rule(draw, 30, 4)
+    y = centred(draw, TITLE_LINE, load_font("serif_bold", 58), 46, COLOURS["ink"])
+    y = centred(draw, STRAP_LINE, load_font("sans", 19), y + 8, COLOURS["faint"])
+    rule(draw, y + 14, 2)
     return y + 16
 
 
-def render_hero(page, top):
-    hero = Image.open(HERO_PATH).convert("RGB")
-    band_h = 250
-    scale = max(CONTENT_W / hero.width, band_h / hero.height)
+def paste_hero(page, top):
+    hero = Image.open(HERO_FILE).convert("RGB")
+    scale = max(INNER_W / hero.width, HERO_BAND / hero.height)
     resized = hero.resize(
         (round(hero.width * scale), round(hero.height * scale)),
         Image.LANCZOS,
     )
-    left = (resized.width - CONTENT_W) // 2
-    upper = (resized.height - band_h) // 2
-    crop = resized.crop((left, upper, left + CONTENT_W, upper + band_h))
-    page.paste(crop, (MARGIN, top))
-    return top + band_h
+    left = (resized.width - INNER_W) // 2
+    upper = (resized.height - HERO_BAND) // 2
+    band = resized.crop((left, upper, left + INNER_W, upper + HERO_BAND))
+    page.paste(band, (EDGE, top))
+    return top + HERO_BAND
 
 
-def render_caption(draw, top):
-    fnt = font(SERIF, 20)
+def draw_caption(draw, top):
+    face = load_font("serif", 20)
     y = top + 12
-    for line in wrap(draw, CAPTION, fnt, CONTENT_W):
-        y = draw_centered(draw, line, fnt, y, FAINT) + 4
+    for line in wrap_text(draw, CAPTION_TEXT, face, INNER_W):
+        y = centred(draw, line, face, y, COLOURS["faint"]) + 4
     return y
 
 
-def render_story(draw, story, x, y, width):
-    """Draw one story block; return the height it used."""
-    kicker = font(SANS_BOLD, 16)
-    draw.text((x, y), story["kicker"], font=kicker, fill=ACCENT)
+def draw_story(draw, story, x, y, width):
+    """Draw one story block starting at (x, y); return the y below it."""
+    kicker, headline, summary = story
+    draw.text((x, y), kicker, font=load_font("sans_bold", 16), fill=COLOURS["accent"])
     y += 23
-    head = font(SERIF_BOLD, 24)
-    for line in wrap(draw, story["headline"], head, width):
-        draw.text((x, y), line, font=head, fill=INK)
+    head_face = load_font("serif_bold", 24)
+    for line in wrap_text(draw, headline, head_face, width):
+        draw.text((x, y), line, font=head_face, fill=COLOURS["ink"])
         y += 29
-    body = font(SANS, 17)
-    for line in wrap(draw, story["summary"], body, width):
-        draw.text((x, y), line, font=body, fill=FAINT)
+    body_face = load_font("sans", 17)
+    for line in wrap_text(draw, summary, body_face, width):
+        draw.text((x, y), line, font=body_face, fill=COLOURS["faint"])
         y += 22
     return y
 
 
-def render_grid(draw, top):
-    col_w = (CONTENT_W - 28) // 2
+def draw_story_grid(draw, top):
+    column_w = (INNER_W - GUTTER) // 2
     y = top
     for row in range(3):
-        pair = STORIES[row * 2: row * 2 + 2]
-        ends = []
-        for col, story in enumerate(pair):
-            x = MARGIN + col * (col_w + 28)
-            ends.append(render_story(draw, story, x, y, col_w))
-        y = max(ends) + 14
+        bottoms = []
+        for column in range(2):
+            x = EDGE + column * (column_w + GUTTER)
+            bottoms.append(draw_story(draw, STORIES[row * 2 + column], x, y, column_w))
+        y = max(bottoms) + 14
     return y
 
 
-def render_footer(draw, top):
-    draw.rectangle([MARGIN, top + 6, PAGE - MARGIN, top + 8], fill=RULE)
-    draw_centered(draw, FOOTER, font(SANS, 17), top + 18, FAINT)
+def draw_footer(draw, top):
+    rule(draw, top + 6, 2)
+    centred(draw, FOOTER_TEXT, load_font("sans", 17), top + 18, COLOURS["faint"])
 
 
-def build_front_page():
-    page = Image.new("RGB", (PAGE, PAGE), PAPER)
+def compose_page():
+    page = Image.new("RGB", (CANVAS, CANVAS), COLOURS["paper"])
     draw = ImageDraw.Draw(page)
-    y = render_masthead(draw)
-    y = render_hero(page, y + 18)
+    y = draw_masthead(draw)
+    y = paste_hero(page, y + 18)
     draw = ImageDraw.Draw(page)
-    y = render_caption(draw, y)
-    draw.rectangle([MARGIN, y + 8, PAGE - MARGIN, y + 10], fill=RULE)
-    y = render_grid(draw, y + 26)
-    render_footer(draw, y)
-    page.save(OUTPUT_PATH, optimize=True)
-    return OUTPUT_PATH
+    y = draw_caption(draw, y)
+    rule(draw, y + 8, 2)
+    y = draw_story_grid(draw, y + 26)
+    draw_footer(draw, y)
+    page.save(ENTRY_FILE, optimize=True)
+    return ENTRY_FILE
 
 
 if __name__ == "__main__":
-    out = build_front_page()
-    print(f"wrote {out} ({out.stat().st_size} bytes)")
+    written = compose_page()
+    print(f"wrote {written} ({written.stat().st_size} bytes)")
