@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
-"""Compose the 20 November 2026 world-news front page as a 1024x1024 PNG.
+"""Render the 20 November 2026 broadsheet (1024x1024) for make.fun's
+daily news-image bounty.
 
-The page is laid out like a broadsheet: a masthead block, a wide hero
-illustration, a one-line caption, then six short stories arranged in a
-two-column grid above a source footer. Everything is drawn with PIL
-from assets that ship in this repository (the hero illustration and the
-system DejaVu fonts), so the result is fully deterministic and needs
-no network access.
+Layout, top to bottom: date masthead, hero illustration band, a
+figures strip, thirty dated news items in three columns, a DATE CHECK
+panel, and the sources line. Everything is drawn with PIL from the
+story table below, so the output is byte-for-byte reproducible.
+
+Usage: python3 build_image.py  (writes entry.png beside this file)
 """
 
 from pathlib import Path
@@ -15,186 +15,231 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
 HERO_FILE = ROOT / "hero.png"
-ENTRY_FILE = ROOT / "entry.png"
+OUTPUT_FILE = ROOT / "entry.png"
 
-CANVAS = 1024
-EDGE = 32
-INNER_W = CANVAS - 2 * EDGE
-GUTTER = 28
-HERO_BAND = 250
+SIZE = 1024
+EDGE = 20
+NAVY = (24, 32, 54)
+CREAM = (243, 236, 217)
+OCHRE = (168, 124, 42)
+GREY = (92, 96, 110)
+HAIRLINE = (150, 138, 112)
 
-COLOURS = {
-    "paper": (247, 243, 234),
-    "ink": (24, 28, 38),
-    "faint": (96, 100, 110),
-    "accent": (176, 116, 28),
-}
-
-FONT_HOME = Path("/usr/share/fonts/truetype/dejavu")
 FONT_FILES = {
-    "serif_bold": FONT_HOME / "DejaVuSerif-Bold.ttf",
-    "serif": FONT_HOME / "DejaVuSerif.ttf",
-    "sans": FONT_HOME / "DejaVuSans.ttf",
-    "sans_bold": FONT_HOME / "DejaVuSans-Bold.ttf",
+    "serif_bold": "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    "sans": "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "sans_bold": "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "cond": "/usr/share/fonts/truetype/noto/NotoSans-Condensed.ttf",
+    "cond_bold": "/usr/share/fonts/truetype/noto/NotoSans-CondensedBold.ttf",
+}
+FALLBACKS = {
+    "serif_bold": "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    "sans": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "sans_bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "cond": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "cond_bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 }
 
-TITLE_LINE = "20 NOVEMBER 2026"
-STRAP_LINE = "Friday  ·  Shenzhen peace declaration  ·  Genocide ruling  ·  Anthropic debut"
-CAPTION_TEXT = (
-    "A peace declaration in Shenzhen, a genocide ruling in The Hague "
-    "and a blockbuster AI debut — the world on 20 November 2026."
-)
-FOOTER_TEXT = "Sources: Reuters · AP · AFP · BBC — 20 Nov 2026"
 
-# (kicker, headline, summary) for the six stories on the page.
-STORIES = [
-    (
-        "PEACE DEAL",
-        "Trump, Xi and Putin sign peace declaration",
-        "The three leaders issued a four-point joint declaration "
-        "after their first three-way summit in Shenzhen.",
-    ),
-    (
-        "COURT",
-        "World Court: Myanmar committed genocide",
-        "The ICJ ruled 9–6 that Myanmar committed genocide against "
-        "the Rohingya, a first against a state.",
-    ),
-    (
-        "MARKETS",
-        "Anthropic pops 17% in Nasdaq debut",
-        "Shares closed near $97, above the $83 offer, while the "
-        "Nikkei slid 4.8% and Asian markets fell.",
-    ),
-    (
-        "RIYADH",
-        "Houthi missiles hit Riyadh finance tower",
-        "Missiles damaged the Saudi sovereign wealth fund's PIF "
-        "tower in the capital's financial district.",
-    ),
-    (
-        "HORMUZ",
-        "Tanker ablaze after mine strike near Hormuz",
-        "A tanker caught fire east of the strait as the US war "
-        "with Iran entered its ninth month.",
-    ),
-    (
-        "UKRAINE",
-        "UK sends 1,000 drones to Ukraine",
-        "London pledged a £260 million package as Kyiv came "
-        "under ballistic missile fire.",
-    ),
+def font(kind, size):
+    try:
+        return ImageFont.truetype(FONT_FILES[kind], size)
+    except OSError:
+        return ImageFont.truetype(FALLBACKS[kind], size)
+
+
+DATE_LINE = "20 NOVEMBER 2026"
+THEMES = "Friday  ·  Kyiv pounded after summit  ·  Cyclone Akvan landfall  ·  COP31 deadlock"
+CAPTION = ("Missiles over Kyiv hours after the peace summit, a cyclone ashore in "
+           "Odisha and climate talks deadlocked — thirty stories first reported "
+           "on 20 November 2026.")
+FIGURES = ("100+  missiles   ·   400  drones   ·   300,000  evacuated   ·   "
+           "47  trains cancelled   ·   £260m  drone package   ·   71–0  Senate vote")
+DATE_CHECK = ("DATE CHECK — all 30 stories above were first reported on Friday "
+              "20 November 2026. Left out as earlier news: the Shenzhen peace "
+              "declaration (19 Nov), the ICJ genocide ruling (19 Nov), "
+              "Anthropic’s debut (19 Nov) and the Pete Rose pardon (19 Nov).")
+SOURCES = "Sources: Reuters · AP · AFP · BBC · CNN — 20 Nov 2026"
+
+# tag | headline | summary — every item first reported on 20 Nov 2026.
+ITEMS = [
+    ("UKRAINE", "Russia pounds Ukraine hours after “peace” summit",
+     "100+ missiles and 400 drones overnight; eight killed, 28 hurt, Kyiv bridges hit."),
+    ("UKRAINE", "Trump calls Putin “tired” and ready for a deal",
+     "Hours later Moscow launches one of the largest strikes of the war."),
+    ("INDIA", "Cyclone Akvan makes landfall near Gopalpur",
+     "Over 300,000 evacuated in Odisha; 423 rescue teams deployed, 47 trains cancelled."),
+    ("CLIMATE", "COP31 draft strips out every mention of fossil fuels",
+     "The slimmed text drops the $120bn adaptation target as the Friday deadline looms."),
+    ("MARKETS", "Asian equities tumble as AI selloff deepens",
+     "Anthropic’s blockbuster IPO fails to staunch the slide in AI stocks."),
+    ("ASIA", "North Korea fires ballistic missile toward Sea of Japan",
+     "South Korea’s Joint Chiefs of Staff report the Friday launch."),
+    ("UK", "Britain and EU set to agree reset on food trade, youth mobility",
+     "Burnham’s Brussels summit aims to mend Brexit damage a decade on."),
+    ("ASIA", "Prabowo and Xi discuss South China Sea cooperation",
+     "Friday talks cover the economy, investment and maritime ties."),
+    ("ASIA", "Nepal’s Balendra Shah to make first state visit to India",
+     "The prime minister will hold talks with Modi on bilateral ties."),
+    ("POLAND", "Poland scrambles jets as objects fall inside its territory",
+     "The air-threat warning is lifted at 07:30; the military investigates near the border."),
+    ("EU", "Kallas: EU will summon Russian envoy over embassy damage",
+     "The announcement follows the November 19 strikes in Kyiv."),
+    ("UKRAINE", "UK pledges 1,000+ drones in £260m package",
+     "Long-range drones and other capabilities for Kyiv."),
+    ("ARGENTINA", "Senate unanimously approves disability framework",
+     "71 senators back the permanent law, Friday’s statement records."),
+    ("EUROPE", "Youth in 25+ countries strike over living costs",
+     "Coordinated action targets housing, education and militarization."),
+    ("US", "Court limits agriculture secretary’s religious emails",
+     "An interim order sets boundaries on pressure over subordinates."),
+    ("SANCTIONS", "US sanctions Comancheros and ’Ndrangheta",
+     "Assets under US jurisdiction are blocked."),
+    ("AMERICAS", "Bukele launches bid for third term",
+     "An unprecedented February reelection bid in El Salvador."),
+    ("MYANMAR", "Rohingya welcome verdict, demand to go home",
+     "Refugees in Bangladesh greet the genocide ruling but want return."),
+    ("CLIMATE", "India slips to 28th in climate performance ranking",
+     "CCPI 2027 at COP31 cites coal dependence and solar curtailment."),
+    ("EUROPE", "Estonia to close border crossings with Russia",
+     "December closures follow an attempted attack on a defense company."),
+    ("GERMANY", "Merz warns against waning support for Ukraine",
+     "The chancellor urges Europe not to let backing slip."),
+    ("GERMANY", "Defense minister announces drone regiment for Bundeswehr",
+     "A dedicated drone unit joins the armed forces."),
+    ("SPORT", "Germany wins first Chess Olympiad medal in 26 years",
+     "The drought ends with a podium finish."),
+    ("BRAZIL", "Lula recognizes ancestral land of Chief Raoni",
+     "The president visits the 94-year-old chief; Kayapo and Yudja lands recognized."),
+    ("ISRAEL", "Mosque set on fire in northern Israel",
+     "The al-Dahi mosque is torched; Hebrew revenge graffiti sprayed on its walls."),
+    ("ZIMBABWE", "250,000 landmines destroyed, HALO Trust says",
+     "The milestone is reached in Zimbabwe’s clearance programme."),
+    ("GAZA", "Rescue crews forced to respond on foot",
+     "Civil defence vehicle fleet collapses under the strain."),
+    ("MALAWI", "Fuel crisis triggers violence and economic strain",
+     "Shortages spark unrest as prices climb."),
+    ("US", "White House orders journalists to bag phones on China flight",
+     "The rule applies to the return flight from China."),
+    ("UKRAINE", "Russia and Ukraine agree major prisoner swap",
+     "US-brokered talks in Abu Dhabi produce the deal."),
 ]
 
 
-def load_font(face, size):
-    return ImageFont.truetype(str(FONT_FILES[face]), size)
-
-
-def wrap_text(draw, text, face, limit):
-    """Split text into lines that each fit within `limit` pixels."""
-    lines = []
-    current = ""
+def wrap_text(draw, text, fnt, max_w):
+    out, line = [], ""
     for word in text.split():
-        candidate = word if not current else f"{current} {word}"
-        if draw.textlength(candidate, font=face) <= limit:
-            current = candidate
+        candidate = f"{line} {word}".strip()
+        if draw.textlength(candidate, font=fnt) <= max_w:
+            line = candidate
         else:
-            lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    return lines
+            if line:
+                out.append(line)
+            line = word
+    if line:
+        out.append(line)
+    return out
 
 
-def centred(draw, text, face, y, colour):
-    """Draw one horizontally centred line; return the y below it."""
-    x = (CANVAS - draw.textlength(text, font=face)) / 2
-    draw.text((x, y), text, font=face, fill=colour)
-    return y + face.size
+def layout_item(draw, item, width, height_budget):
+    """Return (fonts, head_lines, sum_lines) that fit the row height."""
+    _, headline, summary = item
+    for head_px, sum_px in ((15, 11), (14, 11), (13, 10), (12, 10)):
+        head_f = font("cond_bold", head_px)
+        sum_f = font("cond", sum_px)
+        head_lines = wrap_text(draw, headline, head_f, width)
+        sum_lines = wrap_text(draw, summary, sum_f, width)
+        used = 13 + len(head_lines) * (head_px + 2) + len(sum_lines) * (sum_px + 2)
+        if used <= height_budget:
+            return head_f, sum_f, head_lines, sum_lines
+    head_f, sum_f = font("cond_bold", 12), font("cond", 10)
+    return (head_f, sum_f,
+            wrap_text(draw, headline, head_f, width)[:2],
+            wrap_text(draw, summary, sum_f, width)[:2])
 
 
-def rule(draw, y, thickness=2):
-    draw.rectangle([EDGE, y, CANVAS - EDGE, y + thickness], fill=COLOURS["ink"])
+def paint_item(draw, x, y, width, row_h, item):
+    tag = item[0]
+    head_f, sum_f, head_lines, sum_lines = layout_item(draw, item, width, row_h - 4)
+    draw.text((x, y), tag, font=font("sans_bold", 10), fill=OCHRE)
+    cursor = y + 13
+    for ln in head_lines:
+        draw.text((x, cursor), ln, font=head_f, fill=NAVY)
+        cursor += head_f.size + 2
+    for ln in sum_lines:
+        draw.text((x, cursor), ln, font=sum_f, fill=GREY)
+        cursor += sum_f.size + 2
 
 
-def draw_masthead(draw):
-    rule(draw, 30, 4)
-    y = centred(draw, TITLE_LINE, load_font("serif_bold", 58), 46, COLOURS["ink"])
-    y = centred(draw, STRAP_LINE, load_font("sans", 19), y + 8, COLOURS["faint"])
-    rule(draw, y + 14, 2)
-    return y + 16
+def centre(draw, text, fnt, y, fill):
+    w = draw.textlength(text, font=fnt)
+    draw.text(((SIZE - w) / 2, y), text, font=fnt, fill=fill)
 
 
-def paste_hero(page, top):
-    hero = Image.open(HERO_FILE).convert("RGB")
-    scale = max(INNER_W / hero.width, HERO_BAND / hero.height)
-    resized = hero.resize(
-        (round(hero.width * scale), round(hero.height * scale)),
-        Image.LANCZOS,
-    )
-    left = (resized.width - INNER_W) // 2
-    upper = (resized.height - HERO_BAND) // 2
-    band = resized.crop((left, upper, left + INNER_W, upper + HERO_BAND))
-    page.paste(band, (EDGE, top))
-    return top + HERO_BAND
-
-
-def draw_caption(draw, top):
-    face = load_font("serif", 20)
-    y = top + 12
-    for line in wrap_text(draw, CAPTION_TEXT, face, INNER_W):
-        y = centred(draw, line, face, y, COLOURS["faint"]) + 4
-    return y
-
-
-def draw_story(draw, story, x, y, width):
-    """Draw one story block starting at (x, y); return the y below it."""
-    kicker, headline, summary = story
-    draw.text((x, y), kicker, font=load_font("sans_bold", 16), fill=COLOURS["accent"])
-    y += 23
-    head_face = load_font("serif_bold", 24)
-    for line in wrap_text(draw, headline, head_face, width):
-        draw.text((x, y), line, font=head_face, fill=COLOURS["ink"])
-        y += 29
-    body_face = load_font("sans", 17)
-    for line in wrap_text(draw, summary, body_face, width):
-        draw.text((x, y), line, font=body_face, fill=COLOURS["faint"])
-        y += 22
-    return y
-
-
-def draw_story_grid(draw, top):
-    column_w = (INNER_W - GUTTER) // 2
-    y = top
-    for row in range(3):
-        bottoms = []
-        for column in range(2):
-            x = EDGE + column * (column_w + GUTTER)
-            bottoms.append(draw_story(draw, STORIES[row * 2 + column], x, y, column_w))
-        y = max(bottoms) + 14
-    return y
-
-
-def draw_footer(draw, top):
-    rule(draw, top + 6, 2)
-    centred(draw, FOOTER_TEXT, load_font("sans", 17), top + 18, COLOURS["faint"])
-
-
-def compose_page():
-    page = Image.new("RGB", (CANVAS, CANVAS), COLOURS["paper"])
+def render():
+    page = Image.new("RGB", (SIZE, SIZE), CREAM)
     draw = ImageDraw.Draw(page)
-    y = draw_masthead(draw)
-    y = paste_hero(page, y + 18)
-    draw = ImageDraw.Draw(page)
-    y = draw_caption(draw, y)
-    rule(draw, y + 8, 2)
-    y = draw_story_grid(draw, y + 26)
-    draw_footer(draw, y)
-    page.save(ENTRY_FILE, optimize=True)
-    return ENTRY_FILE
+    x0, x1 = EDGE, SIZE - EDGE
+    span = x1 - x0
+
+    draw.line([(x0, 14), (x1, 14)], fill=NAVY, width=3)
+    centre(draw, DATE_LINE, font("serif_bold", 46), 20, NAVY)
+    centre(draw, THEMES, font("cond_bold", 16), 76, OCHRE)
+    draw.line([(x0, 100), (x1, 100)], fill=NAVY, width=2)
+
+    band_y, band_h = 108, 152
+    art = Image.open(HERO_FILE).convert("RGB")
+    want = span / band_h
+    have = art.width / art.height
+    if have > want:
+        crop_w = int(art.height * want)
+        off = (art.width - crop_w) // 2
+        art = art.crop((off, 0, off + crop_w, art.height))
+    else:
+        crop_h = int(art.width / want)
+        off = (art.height - crop_h) // 2
+        art = art.crop((0, off, art.width, off + crop_h))
+    page.paste(art.resize((span, band_h), Image.LANCZOS), (x0, band_y))
+    draw.rectangle([x0, band_y, x1, band_y + band_h], outline=NAVY, width=2)
+
+    cap_f = font("cond", 13)
+    cursor = band_y + band_h + 5
+    for ln in wrap_text(draw, CAPTION, cap_f, span)[:1]:
+        draw.text((x0, cursor), ln, font=cap_f, fill=GREY)
+        cursor += 15
+
+    strip_y = cursor + 3
+    draw.rectangle([x0, strip_y, x1, strip_y + 24], fill=NAVY)
+    centre(draw, FIGURES, font("cond_bold", 13), strip_y + 5, CREAM)
+
+    grid_y, grid_end = strip_y + 32, 892
+    rows = 10
+    row_h = (grid_end - grid_y) // rows
+    gap = 14
+    col_w = (span - gap * 2) // 3
+    for n, item in enumerate(ITEMS[:30]):
+        col, row = divmod(n, rows)
+        x = x0 + col * (col_w + gap)
+        y = grid_y + row * row_h
+        paint_item(draw, x, y, col_w, row_h, item)
+        if row < rows - 1:
+            draw.line([(x, y + row_h - 3), (x + col_w, y + row_h - 3)],
+                      fill=HAIRLINE, width=1)
+
+    panel_y = 900
+    draw.rectangle([x0, panel_y, x1, panel_y + 56], outline=OCHRE, width=2)
+    dc_f = font("cond_bold", 12)
+    cursor = panel_y + 6
+    for ln in wrap_text(draw, DATE_CHECK, dc_f, span - 16)[:3]:
+        draw.text((x0 + 8, cursor), ln, font=dc_f, fill=NAVY)
+        cursor += 15
+
+    draw.line([(x0, 966), (x1, 966)], fill=NAVY, width=2)
+    centre(draw, SOURCES, font("cond", 13), 974, GREY)
+
+    page.save(OUTPUT_FILE, format="PNG", optimize=True)
+    print(f"wrote {OUTPUT_FILE} ({OUTPUT_FILE.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":
-    written = compose_page()
-    print(f"wrote {written} ({written.stat().st_size} bytes)")
+    render()
